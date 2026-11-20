@@ -148,9 +148,16 @@ class GridSignalAgent(Agent):
             if self.price_signals:
                 #next_run = datetime.now().replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
                 #self.tou_price_profile_generator = tou.PriceProfileGenerator(self.price_signals)
-                next_run = datetime.now() + timedelta(minutes=2)
-                self.core.schedule(next_run, self.generate_price_signal)
-                self.core.schedule(cron(self.run_dayahead_schedule), self.generate_price_signal)
+                if self._price_type_or_none() is None:
+                    _log.error(
+                        "Price signal not scheduled: type_of_price_signal %r is missing or unsupported (supported: TOU)",
+                        self.price_signals.get("type_of_price_signal"))
+                elif not self.price_signals.get("TOU_pricing"):
+                    _log.error("Price signal not scheduled: TOU_pricing block is missing or empty")
+                else:
+                    next_run = datetime.now() + timedelta(minutes=2)
+                    self.core.schedule(next_run, self.generate_price_signal)
+                    self.core.schedule(cron(self.run_dayahead_schedule), self.generate_price_signal)
                 
             # Handle CO2 signals if present
             self.co2_config = self.grid_service_signals.get("co2", {})
@@ -205,14 +212,29 @@ class GridSignalAgent(Agent):
             ld.append(data[ind])
         return ld
 
+    def _price_type_or_none(self):
+        """Return the upper-cased supported price type, or None when the
+        price block's type is missing, not a string, or not supported."""
+        price_type = (self.price_signals or {}).get("type_of_price_signal")
+        if isinstance(price_type, str) and price_type.upper() == "TOU":
+            return "TOU"
+        return None
+
     def generate_price_signal(self):
         # Generate price signal value
         _log.debug(f"In generate price signal")
-        type_of_price_signal = self.price_signals.get("type_of_price_signal", {})
-        if type_of_price_signal.upper() == "TOU":
-            self.tou_pricing = self.price_signals.get("TOU_pricing")
-            tou_price = tou.PriceProfileGenerator(self.tou_pricing).generate_profile()
-            _log.debug(f"TOU price signal = {tou_price}")
+        # No price is defaulted for a type we cannot generate: publish nothing.
+        if self._price_type_or_none() is None:
+            _log.error(
+                "No price published: type_of_price_signal %r is missing or unsupported (supported: TOU)",
+                self.price_signals.get("type_of_price_signal") if self.price_signals else None)
+            return
+        self.tou_pricing = self.price_signals.get("TOU_pricing")
+        if not self.tou_pricing:
+            _log.error("No price published: TOU_pricing block is missing or empty")
+            return
+        tou_price = tou.PriceProfileGenerator(self.tou_pricing).generate_profile()
+        _log.debug(f"TOU price signal = {tou_price}")
         
         ind = datetime.now().hour
         tou_price = self.update_load_list(ind, tou_price)
