@@ -106,6 +106,7 @@ class GridSignalAgent(Agent):
         self.price_signals = None
         self.grid_service_signals = None
         self.co2_config = None
+        self.co2_signal = None
         self.run_dayahead_schedule = "0 * * * *"
         self.run_realtime_schedule = "0 * * * *"
 
@@ -158,15 +159,21 @@ class GridSignalAgent(Agent):
                 # Log what loaded without the config contents: it holds the API key.
                 co2_api_info = self.co2_config.get("API_information", {})
                 co2_api_key_value = co2_api_info.get("API_key")
+                # Only a string can be a key; True or 123 would stringify into a bogus token.
+                co2_api_key = co2_api_key_value.strip() if isinstance(co2_api_key_value, str) else ""
+                key_usable = bool(co2_api_key) and not co2_api_key.startswith("<")
                 _log.debug(
                     "Co2 config loaded: zone=%s api_key_set=%s",
                     co2_api_info.get("zone"),
-                    bool(co2_api_key_value) and not str(co2_api_key_value).startswith("<"),
+                    key_usable,
                 )
-                _log.debug("co2 config is not none")
-                co2_api_key = self.co2_config.get("API_information", {}).get("API_key", None)
-                co2_zone = self.co2_config.get("API_information", {}).get("zone", None)
-                self.co2_signal = co2_api.ElectricityMapsAPI(co2_api_key, co2_zone )
+                if not key_usable:
+                    # An unusable key cannot authenticate, so make no call at all.
+                    self.co2_signal = None
+                    _log.info("CO2 signals off: no Electricity Maps key")
+                    return
+                co2_zone = co2_api_info.get("zone", None)
+                self.co2_signal = co2_api.ElectricityMapsAPI(co2_api_key, co2_zone)
                 next_run = datetime.now() + timedelta(minutes=2)
                 self.core.schedule(next_run, self.generate_next_24_co2_signal)
                 self.core.schedule(cron(self.run_dayahead_schedule), self.generate_next_24_co2_signal)
@@ -176,6 +183,9 @@ class GridSignalAgent(Agent):
                 
         
     def generate_real_time_co2(self):
+        # An UPDATE to no key clears the client but leaves earlier jobs scheduled.
+        if self.co2_signal is None:
+            return
         self.co2_real_time_pub(self.co2_signal.get_co2_intensity(), 'carbonIntensity')
         self.co2_real_time_pub(self.co2_signal.get_power_breakdown(), 'powerConsumptionBreakdown')
         
@@ -227,6 +237,8 @@ class GridSignalAgent(Agent):
 
     def generate_next_24_co2_signal(self):
         # Generate CO2 signal value
+        if self.co2_signal is None:
+            return
         co2_intensity_24hr = self.co2_signal.get_24hr_co2_intensity()
         power_breakdown_24hr = self.co2_signal.get_24hr_power_breakdown()
         self.shift_24hr(co2_intensity_24hr, 'carbonIntensity')
