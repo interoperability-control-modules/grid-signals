@@ -60,6 +60,22 @@ _log = logging.getLogger(__name__)
 __version__ = '1.0'
 
 
+KEY_FILE_ENV = "ELECTRICITY_MAPS_API_KEY_FILE"
+
+
+def _read_key_file(path):
+    """Return the stripped key file content, or "" when it cannot be read.
+
+    Only the path and the error type are logged; an error message can carry content.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as key_file:
+            return key_file.read().strip()
+    except (OSError, UnicodeDecodeError) as exc:
+        _log.error("Electricity Maps key file %s unreadable: %s", path, type(exc).__name__)
+        return ""
+
+
 class GridSignalAgent(Agent):
     def __init__(self, config_path, **kwargs):
         super(GridSignalAgent, self).__init__(**kwargs)
@@ -165,9 +181,16 @@ class GridSignalAgent(Agent):
             if self.co2_config:
                 # Log what loaded without the config contents: it holds the API key.
                 co2_api_info = self.co2_config.get("API_information", {})
-                co2_api_key_value = co2_api_info.get("API_key")
-                # Only a string can be a key; True or 123 would stringify into a bogus token.
-                co2_api_key = co2_api_key_value.strip() if isinstance(co2_api_key_value, str) else ""
+                key_file = os.environ.get(KEY_FILE_ENV)
+                if key_file:
+                    # A key file replaces the config key, so the key never sits in the config store.
+                    if "API_key" in co2_api_info:
+                        _log.info("API_key in config ignored: %s is set", KEY_FILE_ENV)
+                    co2_api_key = _read_key_file(key_file)
+                else:
+                    co2_api_key_value = co2_api_info.get("API_key")
+                    # Only a string can be a key; True or 123 would stringify into a bogus token.
+                    co2_api_key = co2_api_key_value.strip() if isinstance(co2_api_key_value, str) else ""
                 key_usable = bool(co2_api_key) and not co2_api_key.startswith("<")
                 _log.debug(
                     "Co2 config loaded: zone=%s api_key_set=%s",

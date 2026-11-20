@@ -92,6 +92,18 @@ under `type_of_grid_service_signals`, with a `price` block and/or a `co2` block.
 > **Security:** keep API keys out of version control. Load them from an environment
 > variable or a local, git-ignored config file rather than committing them.
 
+### Key file (`ELECTRICITY_MAPS_API_KEY_FILE`)
+
+When the environment variable `ELECTRICITY_MAPS_API_KEY_FILE` names a file, the key is
+that file's content with surrounding whitespace stripped, and any `API_key` in the
+config is ignored (the log names the field, never its value). This is how a container
+receives the key as a secret file. The file is read on every config NEW or UPDATE, so
+a rotated key takes effect on the next update.
+
+- An empty file, or content starting with `<`, means no key: CO2 signals stay off.
+- An unreadable path logs the path and the error type only, and CO2 stays off.
+- An unset or empty variable leaves the config `API_key` in use, as before.
+
 ## Behavior and published topics
 
 On configuration the agent schedules its runs and publishes to topics derived from `campus`:
