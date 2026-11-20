@@ -47,7 +47,7 @@ from volttron.platform.agent import utils
 from volttron.platform.agent.utils import format_timestamp, get_aware_utc_now
 from volttron.platform.messaging import topics
 from volttron.platform.messaging.health import STATUS_GOOD
-from volttron.platform.vip.agent import Agent, Core, PubSub
+from volttron.platform.vip.agent import Agent, Core, PubSub, RPC
 from volttron.platform.scheduling import cron
 from volttron.platform.jsonrpc import RemoteError
 from dateutil import parser
@@ -253,6 +253,27 @@ class GridSignalAgent(Agent):
 
         except Exception as err:
             _log.error("In Publish: {}".format(str(err)))
+
+    @RPC.export
+    def publish_price_signal(self):
+        """Start one price run now; return how many hourly prices it will publish.
+
+        The run goes in its own greenlet because each publish waits up to 25 s
+        on the bus, which an RPC handler must not do. Returns 0 and publishes
+        nothing when no valid TOU price config is loaded. The profile built
+        here only validates the config and gives the count; the greenlet's run
+        builds its own, so the two calls are kept.
+        """
+        price_signals = self.price_signals or {}
+        if str(price_signals.get("type_of_price_signal", "")).upper() != "TOU":
+            return 0
+        try:
+            profile = tou.PriceProfileGenerator(price_signals.get("TOU_pricing")).generate_profile()
+        except Exception as err:
+            _log.error("publish_price_signal: no valid TOU config (%s)", type(err).__name__)
+            return 0
+        gevent.spawn(self.generate_price_signal)
+        return len(profile)
 
 
 def main(argv=sys.argv):
