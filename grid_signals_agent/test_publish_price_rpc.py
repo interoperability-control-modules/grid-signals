@@ -74,9 +74,21 @@ def _configure(agent, contents):
     agent.scheduled.clear()
 
 
+def _exported_rpc_names():
+    """Names the agent registers, resolved as the base agent's loop does:
+    an explicit rpc_name, else the attribute name."""
+    cls = agent_module.GridSignalAgent
+    return {
+        getattr(attr, "rpc_name", None) or name
+        for name, attr in vars(cls).items()
+        if callable(attr) and hasattr(attr, "rpc_exported")
+    }
+
+
 def test_publish_price_signal_is_an_rpc_export():
     method = agent_module.GridSignalAgent.publish_price_signal
     assert method.rpc_exported is True
+    assert "publish_price_signal" in _exported_rpc_names()
 
 
 def test_valid_tou_config_returns_24_and_publishes_24():
@@ -104,6 +116,7 @@ def test_no_price_config_returns_0_and_publishes_nothing():
     agent = _make_agent()
     # Control: with no price block, configure_main schedules no price job.
     agent.configure_main("config", "NEW", {"type_of_grid_service_signals": {}})
+    assert agent.scheduled == []
     agent.price_signals = {}
 
     returned = agent.publish_price_signal()
@@ -124,3 +137,36 @@ def test_unusable_tou_block_returns_0_and_publishes_nothing():
 
     assert returned == 0
     assert agent.published == []
+
+
+def test_rtp_config_returns_0_and_publishes_nothing():
+    agent = _make_agent()
+    contents = _tou_contents()
+    # A valid TOU block stays in place so only the type check can refuse it.
+    contents["type_of_grid_service_signals"]["price"]["type_of_price_signal"] = "RTP"
+    _configure(agent, contents)
+
+    returned = agent.publish_price_signal()
+    gevent.sleep(0.2)
+
+    assert returned == 0
+    assert agent.published == []
+
+
+def test_return_value_is_the_profile_length(monkeypatch):
+    agent = _make_agent()
+    _configure(agent, _tou_contents())
+    spawned = []
+
+    class _FiveHourProfile:
+        def __init__(self, _config):
+            pass
+
+        def generate_profile(self):
+            return [0.1] * 5
+
+    monkeypatch.setattr(agent_module.tou, "PriceProfileGenerator", _FiveHourProfile)
+    monkeypatch.setattr(agent_module.gevent, "spawn", lambda fn: spawned.append(fn))
+
+    assert agent.publish_price_signal() == 5
+    assert spawned == [agent.generate_price_signal]

@@ -248,7 +248,9 @@ class GridSignalAgent(Agent):
 
         The run goes in its own greenlet because each publish waits up to 25 s
         on the bus, which an RPC handler must not do. Returns 0 and publishes
-        nothing when no valid TOU price config is loaded.
+        nothing when no valid TOU price config is loaded. The profile built
+        here only validates the config and gives the count; the greenlet's run
+        builds its own, so the two calls are kept.
         """
         price_signals = self.price_signals or {}
         if str(price_signals.get("type_of_price_signal", "")).upper() != "TOU":
