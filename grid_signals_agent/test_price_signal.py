@@ -95,7 +95,7 @@ def test_tou_config_publishes_24_hourly_tiers(tmp_path, monkeypatch):
         assert "Date" in headers
 
 
-@pytest.mark.parametrize("bad_type", ["RTP", "", 7])
+@pytest.mark.parametrize("bad_type", ["RTP", "", 7, None])
 def test_unsupported_type_is_refused_and_publishes_nothing(tmp_path, monkeypatch, caplog, bad_type):
     agent, core, published = _make_agent(
         tmp_path, monkeypatch, _price_block(type_of_price_signal=bad_type))
@@ -133,3 +133,56 @@ def test_lowercase_tou_is_still_accepted(tmp_path, monkeypatch):
 
     assert len(core.scheduled) == 2
     assert len(published) == 24
+
+
+def _error_messages(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+
+
+@pytest.mark.parametrize("bad_type", ["RTP", "", 7, None])
+def test_configure_alone_logs_refusal_naming_the_type(tmp_path, monkeypatch, caplog, bad_type):
+    agent, core, published = _make_agent(
+        tmp_path, monkeypatch, _price_block(type_of_price_signal=bad_type))
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        _configure(agent)
+
+    errors = _error_messages(caplog)
+    assert len(errors) == 1
+    assert errors[0].startswith("Price signal not scheduled")
+    assert repr(bad_type) in errors[0]
+    assert core.scheduled == []
+
+
+def test_configure_alone_logs_refusal_for_missing_type(tmp_path, monkeypatch, caplog):
+    block = _price_block()
+    del block["type_of_price_signal"]
+    agent, core, published = _make_agent(tmp_path, monkeypatch, block)
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        _configure(agent)
+
+    errors = _error_messages(caplog)
+    assert len(errors) == 1
+    assert errors[0].startswith("Price signal not scheduled")
+    assert "type_of_price_signal None" in errors[0]
+    assert core.scheduled == []
+
+
+def test_tou_without_tiers_is_refused_and_publishes_nothing(tmp_path, monkeypatch, caplog):
+    block = _price_block()
+    del block["TOU_pricing"]
+    agent, core, published = _make_agent(tmp_path, monkeypatch, block)
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        _configure(agent)
+        agent.generate_price_signal()
+
+    errors = _error_messages(caplog)
+    assert len(errors) == 2
+    assert all("TOU_pricing" in e for e in errors)
+    assert core.scheduled == []
+    assert published == []

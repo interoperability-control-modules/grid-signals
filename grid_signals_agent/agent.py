@@ -151,6 +151,8 @@ class GridSignalAgent(Agent):
                     _log.error(
                         "Price signal not scheduled: type_of_price_signal %r is missing or unsupported (supported: TOU)",
                         self.price_signals.get("type_of_price_signal"))
+                elif not self.price_signals.get("TOU_pricing"):
+                    _log.error("Price signal not scheduled: TOU_pricing block is missing or empty")
                 else:
                     next_run = datetime.now() + timedelta(minutes=2)
                     self.core.schedule(next_run, self.generate_price_signal)
@@ -218,6 +220,9 @@ class GridSignalAgent(Agent):
                 self.price_signals.get("type_of_price_signal") if self.price_signals else None)
             return
         self.tou_pricing = self.price_signals.get("TOU_pricing")
+        if not self.tou_pricing:
+            _log.error("No price published: TOU_pricing block is missing or empty")
+            return
         tou_price = tou.PriceProfileGenerator(self.tou_pricing).generate_profile()
         _log.debug(f"TOU price signal = {tou_price}")
         
