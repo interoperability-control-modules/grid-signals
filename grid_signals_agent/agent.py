@@ -163,10 +163,14 @@ class GridSignalAgent(Agent):
                     co2_api_info.get("zone"),
                     bool(co2_api_key_value) and not str(co2_api_key_value).startswith("<"),
                 )
-                _log.debug("co2 config is not none")
-                co2_api_key = self.co2_config.get("API_information", {}).get("API_key", None)
-                co2_zone = self.co2_config.get("API_information", {}).get("zone", None)
-                self.co2_signal = co2_api.ElectricityMapsAPI(co2_api_key, co2_zone )
+                co2_api_key = str(co2_api_key_value or "").strip()
+                if not co2_api_key or co2_api_key.startswith("<"):
+                    # An unusable key cannot authenticate, so make no call at all.
+                    self.co2_signal = None
+                    _log.info("CO2 signals off: no Electricity Maps key")
+                    return
+                co2_zone = co2_api_info.get("zone", None)
+                self.co2_signal = co2_api.ElectricityMapsAPI(co2_api_key, co2_zone)
                 next_run = datetime.now() + timedelta(minutes=2)
                 self.core.schedule(next_run, self.generate_next_24_co2_signal)
                 self.core.schedule(cron(self.run_dayahead_schedule), self.generate_next_24_co2_signal)
